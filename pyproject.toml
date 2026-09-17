@@ -1,0 +1,20 @@
+[project]
+name = "erpnext-mcp-native"
+authors = [{ name = "The erpnext-mcp-native Authors" }]
+description = "In-process MCP server for ERPNext: 16 read tools, OAuth + API-key auth, usage telemetry."
+requires-python = ">=3.10"
+readme = "README.md"
+dynamic = ["version"]
+dependencies = []
+# frappe/erpnext are provided by the bench environment, not PyPI;
+# setup_mcp() asserts erpnext presence at install time.
+
+[build-system]
+requires = ["flit_core >=3.4,<4"]
+build-backend = "flit_core.buildapi"
+
+[tool.flit.module]
+name = "erpnext_mcp_native"
+
+[tool.ruff]
+lint.select = ["E9", "F63", "F7", "F82"]
