@@ -9,6 +9,12 @@ dependencies = []
 # frappe/erpnext are provided by the bench environment, not PyPI;
 # setup_mcp() asserts erpnext presence at install time.
 
+# Required by Frappe Cloud and warned about by bench on get-app. The README says
+# v16 tested, v15 untested — this says the same thing rather than claiming more.
+# Widen it when a v15 install has actually been run.
+[tool.bench.frappe-dependencies]
+frappe = ">=16.0.0,<17.0.0"
+
 [build-system]
 requires = ["flit_core >=3.4,<4"]
 build-backend = "flit_core.buildapi"

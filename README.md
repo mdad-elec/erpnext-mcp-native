@@ -19,7 +19,7 @@ bench with direct ORM access and your site's own permission system.
 Tested on **ERPNext/Frappe v16** (v15 untested).
 
 ```bash
-bench get-app --skip-assets https://github.com/dev-designer-shaik/erpnext-mcp-native
+bench get-app --skip-assets https://github.com/mdad-elec/erpnext-mcp-native
 bench --site your-site.example.com install-app erpnext_mcp_native
 bench --site your-site.example.com execute erpnext_mcp_native.setup.setup_mcp
 ```
@@ -83,6 +83,14 @@ and argument-shape pitfalls.
 
 Every tool call is logged as one JSON line to `logs/mcp_usage.log` inside the bench:
 tool, user, duration ms, ok/fail, error text. Absent-by-default nowhere — it's on.
+
+## Related
+
+[**Deskpilot**](https://github.com/mdad-elec/deskpilot) — the same problem approached
+from the other side. This server points ERPNext *outward*, so an external agent can
+reach your data. Deskpilot puts an assistant *inside* the Desk, where it drives the
+screen and fills the form in front of the user. They compose: run both and the same
+ERP answers an agent over MCP and a user at their keyboard.
 
 ## License
 
