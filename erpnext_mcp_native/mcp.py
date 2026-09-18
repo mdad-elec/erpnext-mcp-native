@@ -1,17 +1,18 @@
 """
-Enhanced ERPNext MCP Server with Universal Query Tools
-Replaces all specific tools with a powerful generic query system
+ERPNext MCP Server — in-process tool implementations for erpnext-mcp-native
+
+Runs inside the erpnext bench. Two JSON-RPC endpoints live in erpnext_mcp_native.api:
+- handle_mcp          API-key auth (X-Frappe-API-Key: <key>:<secret>, or
+                      Authorization: Bearer <key>:<secret> — the Bearer form is
+                      validated site-wide by this app's auth_hooks entry)
+- handle_mcp_oauth    OAuth 2.0 Bearer auth for MCP clients (Claude.ai, ChatGPT, others)
 
 SECURITY MODEL:
-- Authentication is handled by Server Script wrapper (erpnext_mcp_native.auth.validate_bearer_api_key)
-- Once authenticated via API Key, chatbots have FULL ACCESS to all doctypes
-- All database queries use ignore_permissions=True by default
-- Role-based restrictions are enforced at the Server Script level
-- This design allows AI assistants to query any data without permission barriers
-
-USAGE:
-- Direct endpoint (no auth): /api/method/erpnext_mcp_native.api.handle_mcp
-- Authenticated endpoint: /api/method/erpnext_mcp_native.api.handle_mcp_oauth
+- Both endpoints return 401 without valid credentials
+- Access requires role "System Manager" or "MCP User" — enforced at the endpoint
+  and again at tool level (REQUIRED_ROLES)
+- Tools are read-only ERP queries
+- Every tool call is logged to logs/mcp_usage.log (tool, user, ms, ok, error)
 """
 
 import frappe
@@ -21,9 +22,9 @@ import json
 from typing import Dict, List, Optional, Any, Union
 
 # Create MCP instance
-# Authentication is handled by Server Script wrapper (erpnext_mcp_native.auth.validate_bearer_api_key)
-# This endpoint focuses purely on MCP functionality
-mcp = frappe_mcp.MCP("erpnext-mcp-universal")
+# Authentication and role gating happen in erpnext_mcp_native.api (both endpoints)
+# and via the app-level auth_hooks Bearer validation; this module is the tool layer.
+mcp = frappe_mcp.MCP("erpnext-mcp-native")
 
 # Database schema cache
 SCHEMA_CACHE = {}
@@ -2288,17 +2289,17 @@ def handle_mcp():
     Endpoint: /api/method/erpnext_mcp_native.api.handle_mcp
     - Requires authentication (API Key, Bearer Token, or Session)
     - Validates roles: System Manager, MCP User
-    - Returns full doctype access with ignore_permissions=True
+    - Query tools run with ignore_permissions=True behind this role gate
 
     Authentication:
     - Use API Key: Authorization header with "token API_KEY:API_SECRET"
     - User must have "System Manager" or "MCP User" role
-    - Once authenticated, full access to all doctypes is granted
 
     Security Model:
-    - Role-based authentication is the ONLY security layer
-    - All database queries use ignore_permissions=True
-    - Chatbots with valid API keys have unrestricted doctype access
+    - Role gate at endpoint AND tool level (REQUIRED_ROLES)
+    - Query tools use ignore_permissions=True; run_report enforces full
+      Frappe per-doctype permissions (see docs/runbook.md)
+    - Every call is logged to logs/mcp_usage.log
     """
     # Check user authentication and roles
     current_user = frappe.session.user

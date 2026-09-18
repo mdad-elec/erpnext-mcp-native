@@ -233,8 +233,8 @@ def oauth_protected_resource():
 @frappe.whitelist(allow_guest=True)
 def handle_mcp_oauth():
     """
-    OpenAI/ChatGPT MCP Endpoint
-    Uses OAuth Bearer token authentication
+    OAuth 2.0 Bearer MCP endpoint for any MCP client
+    (Claude.ai, ChatGPT, and other OAuth-capable clients)
     Returns pure JSON-RPC responses (no Frappe wrapper)
     """
     # Handle CORS preflight

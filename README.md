@@ -19,10 +19,23 @@ bench with direct ORM access and your site's own permission system.
 Tested on **ERPNext/Frappe v16** (v15 untested).
 
 ```bash
-bench get-app https://github.com/dev-designer-shaik/erpnext-mcp-native
+bench get-app --skip-assets https://github.com/dev-designer-shaik/erpnext-mcp-native
 bench --site your-site.example.com install-app erpnext_mcp_native
 bench --site your-site.example.com execute erpnext_mcp_native.setup.setup_mcp
 ```
+
+**Why `--skip-assets`:** the app is pure Python with no frontend assets, and on
+bench 5.29.1 the post-clone asset build runs before the app is registered —
+frappe's bundler cannot resolve an unregistered app and the install aborts. The
+flag skips that step; nothing is lost for an asset-less app.
+
+**bench 5.29.1 registration gap:** `get-app --skip-assets` may write
+`sites/apps.json` but not append `sites/apps.txt`. If `install-app` then errors
+with the app "not in apps.txt", append the line `erpnext_mcp_native` to
+`sites/apps.txt` yourself and re-run. ⚠️ First check the file ends with a
+newline — appending to a file whose last line lacks one fuses two app names
+onto a single line (e.g. `paymentserpnext_mcp_native`), which breaks the
+bench's app list.
 
 The last step creates the `MCP User` role and a connector user, **generates** an
 API key/secret pair, and prints it exactly once — the secret is stored encrypted and

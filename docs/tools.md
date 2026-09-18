@@ -45,7 +45,9 @@ Record count for one doctype, optionally filtered. Cheap smoke-test and drift ch
 The generic query tool. `filters` uses Frappe's operator form —
 `{"grand_total": [">", 1000], "name": ["like", "%ABC%"]}`. `date_range` takes
 `{"from": …, "to": …}`. `ignore_permissions=True` is the default because the
-endpoint already authenticated and role-gated the caller.
+endpoint already authenticated and role-gated the caller. `run_report` is the
+opposite: it enforces full Frappe per-doctype permissions, which is why the
+[runbook](runbook.md) pairs the `MCP User` role with read-only doctype grants.
 
 ### `query_with_aggregation(doctype, aggregations, group_by=None, filters=None, having=None, limit=100)`
 Aggregations with optional grouping. `aggregations` maps field → SQL function;
