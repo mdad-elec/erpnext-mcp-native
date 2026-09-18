@@ -1,5 +1,5 @@
 [project]
-name = "erpnext-mcp-native"
+name = "erpnext_mcp_native"
 authors = [{ name = "The erpnext-mcp-native Authors" }]
 description = "In-process MCP server for ERPNext: 16 read tools, OAuth + API-key auth, usage telemetry."
 requires-python = ">=3.10"
