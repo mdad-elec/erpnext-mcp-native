@@ -36,7 +36,7 @@ out=$(find . -path ./.git -prune -o \( -name '*.pem' -o -name '*.key' -o -name '
 # 1e. docs URLs outside the public allowlist
 out=$(grep -rIhoE --include='*.md' 'https?://[A-Za-z0-9.-]+[:/]' . \
       | sed -E 's#https?://##; s#[:/]$##; s#^www\.##' | sort -u \
-      | grep -Ev '^(example\.(com|org)|[A-Za-z0-9-]+\.example\.(com|org)|github\.com|localhost|127\.0\.0\.1|claude\.ai|chatgpt\.com|openai\.com|[A-Za-z0-9.-]*frappe\.(io|cloud))$' || true)
+      | grep -Ev '^(example\.(com|org)|[A-Za-z0-9-]+\.example\.(com|org)|github\.com|localhost|127\.0\.0\.1|claude\.ai|claude\.com|chatgpt\.com|openai\.com|[A-Za-z0-9.-]*frappe\.(io|cloud))$' || true)
 [ -n "$out" ] && hit "non-allowlisted-url" "$out"
 
 # 2. maintainer blocklist (internal identifiers, never shipped)
