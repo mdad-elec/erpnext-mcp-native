@@ -277,21 +277,38 @@ def handle_mcp_oauth():
     
     # Set user for this request
     frappe.set_user(user)
-    
+
+    # Check roles (2026-09-18: same gate as the API-key flavour — without this, ANY
+    # valid OAuth Bearer token, i.e. any site user with an OAuth client, reached the
+    # tools regardless of MCP role)
+    user_roles = frappe.get_roles(user)
+    if not any(role in user_roles for role in ["System Manager", "MCP User"]):
+        response_data = {
+            "jsonrpc": "2.0",
+            "error": {"code": -32002, "message": "Insufficient permissions. Requires System Manager or MCP User role"},
+            "id": None
+        }
+        return Response(
+            json.dumps(response_data, default=str),
+            status=403,
+            mimetype="application/json",
+            headers={"Access-Control-Allow-Origin": "*"}
+        )
+
     # Get request data
     try:
         data = frappe.request.get_json() or {}
     except:
         data = {}
-    
+
     # Import MCP handler
     from erpnext_mcp_native.mcp import mcp
-    
+
     # Handle JSON-RPC methods
     request_id = data.get("id")
     method = data.get("method", "")
     params = data.get("params", {}) or {}
-    
+
     try:
         if method == "initialize":
             result = {

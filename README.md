@@ -32,7 +32,7 @@ flag skips that step; nothing is lost for an asset-less app.
 **bench 5.29.1 registration gap:** `get-app --skip-assets` may write
 `sites/apps.json` but not append `sites/apps.txt`. If `install-app` then errors
 with the app "not in apps.txt", append the line `erpnext_mcp_native` to
-`sites/apps.txt` yourself and re-run. ⚠️ First check the file ends with a
+`sites/apps.txt` yourself and re-run `install-app`. ⚠️ First check the file ends with a
 newline — appending to a file whose last line lacks one fuses two app names
 onto a single line (e.g. `paymentserpnext_mcp_native`), which breaks the
 bench's app list.

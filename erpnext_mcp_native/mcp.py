@@ -9,8 +9,8 @@ Runs inside the erpnext bench. Two JSON-RPC endpoints live in erpnext_mcp_native
 
 SECURITY MODEL:
 - Both endpoints return 401 without valid credentials
-- Access requires role "System Manager" or "MCP User" — enforced at the endpoint
-  and again at tool level (REQUIRED_ROLES)
+- Access requires role "System Manager" or "MCP User" — enforced at BOTH
+  endpoints (api.handle_mcp and api.handle_mcp_oauth)
 - Tools are read-only ERP queries
 - Every tool call is logged to logs/mcp_usage.log (tool, user, ms, ok, error)
 """
@@ -19,6 +19,7 @@ import frappe
 from . import frappe_mcp
 from datetime import datetime, timedelta, date
 import json
+import re
 from typing import Dict, List, Optional, Any, Union
 
 # Create MCP instance
@@ -162,6 +163,20 @@ def _has_column(doctype: str, fieldname: str) -> bool:
         return False
 
 
+_SAFE_TOKEN_RE = re.compile(r"^[A-Za-z0-9_ -]+$")
+
+
+def _is_safe_sql_token(token: str) -> bool:
+    """True only for bare identifier tokens (letters, digits, underscore, space, dash).
+
+    2026-09-18 HARDENING: raw-SQL fragments in this file backtick-wrap caller-supplied
+    identifiers (`{field}`). A token containing a backtick, quote, or parenthesis escapes
+    that quoting and injects SQL text. Every caller-supplied identifier must pass this
+    check before it enters a query string.
+    """
+    return isinstance(token, str) and bool(_SAFE_TOKEN_RE.match(token))
+
+
 def _get_default_fields(doctype: str) -> List[str]:
     """Get default fields for a doctype"""
     fields = []
@@ -210,14 +225,28 @@ def build_aggregation_query(doctype: str, aggregations: Dict, group_by: Optional
     # Build SELECT clause with aggregations
     select_fields = []
     if group_by:
+        # 2026-09-18 HARDENING: group_by fields are backtick-wrapped into the SQL text —
+        # a token containing a backtick escapes the quoting. Bare identifiers only.
+        for field in group_by:
+            if not _is_safe_sql_token(field):
+                raise ValueError(
+                    f"group_by field '{field}' is not a safe identifier "
+                    f"(letters, digits, underscore, space, dash only).")
         select_fields.extend([f"`{field}`" for field in group_by])
-    
+
     # 2026-07-29 FIX: this expects {alias: "SUM(field)"} — a full SQL expression. Callers naturally
     # send the friendly {field: "sum"}, which produced `sum as `grand_total`` and returned ONLY the
     # group keys with success:true — a silent wrong answer, the worst failure mode for an agent.
     # Now the friendly form is translated, and anything unusable raises instead of returning garbage.
     _AGG_FNS = {"sum", "count", "avg", "min", "max"}
+    # 2026-09-18 HARDENING: the expression form accepted ANY text after the aggregate head
+    # (e.g. "SUM(x) FROM other_table--"). It must be exactly one aggregate over one bare field.
+    _AGG_EXPR_RE = re.compile(r"^(sum|count|avg|min|max)\(\s*[A-Za-z0-9_]+\s*\)$", re.IGNORECASE)
     for alias, expr in aggregations.items():
+        if not _is_safe_sql_token(alias):
+            raise ValueError(
+                f"aggregations key '{alias}' is not a safe identifier "
+                f"(letters, digits, underscore, space, dash only).")
         e = str(expr).strip()
         if "(" not in e:                      # friendly form: {"grand_total": "sum"}
             fn = e.lower()
@@ -231,19 +260,24 @@ def build_aggregation_query(doctype: str, aggregations: Dict, group_by: Optional
             # the aggregate from the output — the very bug this fix exists to remove.
             e = f"{fn.upper()}(`{alias}`)"
         else:
-            head = e.split("(", 1)[0].strip().lower()
-            if head not in _AGG_FNS:
+            if not _AGG_EXPR_RE.match(e):
                 raise ValueError(
-                    f"aggregations['{alias}']='{expr}' does not start with an aggregate function "
-                    f"({sorted(_AGG_FNS)}).")
+                    f"aggregations['{alias}']='{expr}' must be a single aggregate function over "
+                    f"one field, e.g. 'SUM(grand_total)', or the shorthand {{'grand_total': 'sum'}} "
+                    f"with one of {sorted(_AGG_FNS)}.")
         select_fields.append(f"{e} as `{alias}`")
-    
+
     # Build WHERE clause
     where_clause = ""
     values = []
     if filters:
         conditions = []
         for field, value in filters.items():
+            # 2026-09-18 HARDENING: filter fields are backtick-wrapped into the SQL text.
+            if not _is_safe_sql_token(field):
+                raise ValueError(
+                    f"filter field '{field}' is not a safe identifier "
+                    f"(letters, digits, underscore, space, dash only).")
             if isinstance(value, list):
                 if len(value) == 2 and value[0] in ["=", "!=", ">", "<", ">=", "<=", "like", "not like"]:
                     operator = value[0]
@@ -254,10 +288,16 @@ def build_aggregation_query(doctype: str, aggregations: Dict, group_by: Optional
                     else:
                         conditions.append(f"`{field}` {operator} %s")
                         values.append(filter_value)
-                elif value[0] == "in":
+                elif value and value[0] == "in":
                     placeholders = ", ".join(["%s"] * len(value[1]))
                     conditions.append(f"`{field}` IN ({placeholders})")
                     values.extend(value[1])
+                else:
+                    # 2026-09-18: unknown list operators were silently DROPPED — the filter
+                    # vanished while the call still returned success:true. Reject loudly.
+                    raise ValueError(
+                        f"filters['{field}'] operator {value[0] if value else value!r} is not "
+                        "supported. Use one of: =, !=, >, <, >=, <=, like, not like, in.")
             else:
                 conditions.append(f"`{field}` = %s")
                 values.append(value)
@@ -403,17 +443,40 @@ def query_doctype(doctype: str,
             try:
                 # Use SQL count for better performance when ignoring permissions
                 if ignore_permissions:
-                    table_name = f"tab{doctype.replace(' ', '')}"
+                    # 2026-09-18 FIX: the table name stripped the space -> `tabSalesInvoice`,
+                    # but Frappe tables keep it (`tabSales Invoice`), so every multi-word
+                    # doctype's count raised 1146, was swallowed below, and total_count silently
+                    # became len(documents) — pagination then claimed has_more=False while rows
+                    # remained. Same bug class the aggregation path fixed 2026-07-29.
+                    table_name = f"tab{doctype}"
                     if query_filters:
-                        # Build WHERE clause for filters
+                        # Build WHERE clause for filters.
+                        # 2026-09-18 HARDENING: operator and field used to be interpolated RAW
+                        # (f"`{field}` {operator} %s") — either one could carry SQL text.
+                        # Operators are now allowlisted and fields validated; anything else is
+                        # rejected loudly instead of corrupting the count.
+                        _COUNT_OPS = {"=", "!=", ">", "<", ">=", "<=", "like", "not like",
+                                      "in", "not in", "between", "is"}
                         conditions = []
                         values = []
                         for field, value in query_filters.items():
-                            if isinstance(value, list):
-                                operator = value[0]
-                                filter_value = value[1]
-                                conditions.append(f"`{field}` {operator} %s")
-                                values.append(filter_value)
+                            if not _is_safe_sql_token(field):
+                                return create_error_response(
+                                    f"Invalid filter field '{field}': only plain field names are allowed.",
+                                    "INVALID_FILTER")
+                            if isinstance(value, list) and value:
+                                operator = str(value[0]).strip().lower()
+                                if operator not in _COUNT_OPS:
+                                    return create_error_response(
+                                        f"Invalid filter operator '{value[0]}' for field '{field}'. "
+                                        f"Allowed: {sorted(_COUNT_OPS)}", "INVALID_FILTER")
+                                if operator in ("in", "not in") and isinstance(value[1], (list, tuple)):
+                                    placeholders = ", ".join(["%s"] * len(value[1]))
+                                    conditions.append(f"`{field}` {operator.upper()} ({placeholders})")
+                                    values.extend(value[1])
+                                else:
+                                    conditions.append(f"`{field}` {operator} %s")
+                                    values.append(value[1])
                             else:
                                 conditions.append(f"`{field}` = %s")
                                 values.append(value)
@@ -460,7 +523,7 @@ def query_doctype(doctype: str,
         
         if debug:
             response_data["debug"] = {
-                "table_name": f"tab{doctype.lower().replace(' ', '')}",
+                "table_name": f"tab{doctype}",
                 "query_filters": query_filters,
                 "ignore_permissions": ignore_permissions
             }
